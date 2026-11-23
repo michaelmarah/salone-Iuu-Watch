@@ -1,0 +1,7 @@
+requests>=2.31
+pandas>=2.1
+numpy>=1.26
+shapely>=2.0
+folium>=0.15
+pyyaml>=6.0
+pytest>=8.0
