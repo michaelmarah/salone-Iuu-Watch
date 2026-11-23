@@ -18,47 +18,27 @@ def _popup(r: dict, extra: str = "") -> str:
             f"{str(r.get('start'))[:16]} UTC<br>{extra}")
 
 
-def build_map(cfg: dict, evid: dict, hot: pd.DataFrame) -> folium.Map:
-    m = folium.Map(location=[7.9, -13.2], zoom_start=8, tiles="OpenStreetMap")
-    b = cfg["aoi"]["bbox"]
-    folium.Rectangle([[b[1], b[0]], [b[3], b[2]]], color="#888", weight=1, fill=False,
-                     tooltip="Area of interest").add_to(m)
-    folium.PolyLine([[la, lo] for lo, la in cfg["iez"]["coastline_approx"]], color="#555",
-                    weight=1, dash_array="4", tooltip="Approximate coastline").add_to(m)
+ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/{}/MapServer/tile/{{z}}/{{y}}/{{x}}"
+BASEMAPS = [
+    # (name, url, attribution). OpenStreetMap's own servers refuse pages opened
+    # from disk (file://), so we use providers that allow it.
+    ("Ocean", ESRI.format("Ocean/World_Ocean_Base"), "Tiles &copy; Esri, GEBCO, NOAA, Garmin"),
+    ("Satellite", ESRI.format("World_Imagery"), "Tiles &copy; Esri, Maxar, Earthstar Geographics"),
+    ("Light", "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+     "&copy; OpenStreetMap contributors &copy; CARTO"),
+]
 
-    layers = [
-        ("Fishing inside IEZ", "iez_fishing", COLORS["iez"], lambda r: f"{r['hours']:.1f} h fishing, "
-         f"{r['dist_shore_km'] if pd.notna(r.get('dist_shore_km')) else '?'} km from shore"),
-        ("Fishing in MPA", "mpa_fishing", COLORS["mpa"], lambda r: f"{r['hours']:.1f} h fishing"),
-        ("AIS gaps (vessel went dark)", "ais_gaps", COLORS["gap"],
-         lambda r: f"{r['gap_hours']:.0f} h gap{' (likely intentional)' if r.get('gap_intentional') else ''}"),
-        ("Encounters with carriers", "carrier_encounters", COLORS["enc"],
-         lambda r: f"met {html.escape(str(r.get('other_name')))} ({r.get('other_flag')})"),
-    ]
-    for title, key, color, txt in layers:
-        t = evid.get(key)
-        if t is None or t.empty:
-            continue
-        fg = folium.FeatureGroup(name=f"{title} ({len(t)})")
-        for r in t.to_dict("records"):
-            lat = r.get("gap_off_lat") if key == "ais_gaps" and pd.notna(r.get("gap_off_lat")) else r["lat"]
-            lon = r.get("gap_off_lon") if key == "ais_gaps" and pd.notna(r.get("gap_off_lon")) else r["lon"]
-            folium.CircleMarker([lat, lon], radius=5, color=color, fill=True, fill_opacity=0.8,
-                                popup=folium.Popup(_popup(r, txt(r)), max_width=260)).add_to(fg)
-        fg.add_to(m)
 
-    if hot is not None and not hot.empty:
-        fg = folium.FeatureGroup(name=f"Dark radar detections, no AIS ({int(hot.detections.sum())})")
-        mx = hot.detections.max()
-        for r in hot.to_dict("records"):
-            folium.CircleMarker([r["cell_lat"], r["cell_lon"]], radius=3 + 10 * (r["detections"] / mx) ** 0.5,
-                                color=COLORS["sar"], weight=1, fill=True, fill_opacity=0.35,
-                                tooltip=f"{int(r['detections'])} detections on {r['days']} day(s)"
-                                        f"{' - inside IEZ (approx.)' if r['in_iez'] else ''}").add_to(fg)
-        fg.add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m)
+def base_map(zoom: int = 8) -> folium.Map:
+    m = folium.Map(location=[7.9, -13.2], zoom_start=zoom, tiles=None)
+    for i, (name, url, attr) in enumerate(BASEMAPS):
+        folium.TileLayer(url, attr=attr, name=name, max_zoom=16, overlay=False, control=True,
+                         show=(i == 0)).add_to(m)
     return m
 
+
+def build_map(cfg: dict, evid: dict, hot: pd.DataFrame) -> folium.Map:
+    m = base_map()
 
 def build_report(cfg: dict, res: dict, effort: pd.DataFrame | None = None, synthetic: bool = False) -> str:
     s, scores = res["summary"], res["scores"]
