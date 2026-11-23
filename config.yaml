@@ -1,0 +1,74 @@
+# Sierra Leone IUU-fishing watch: pipeline configuration
+# -------------------------------------------------------
+
+gfw:
+  base_url: https://gateway.api.globalfishingwatch.org/v3
+  token_env: GFW_API_TOKEN        # export GFW_API_TOKEN=... (free, non-commercial token)
+  page_limit: 500                 # events per page
+  timeout_s: 120
+  max_retries: 5
+
+date_range:
+  start: "2026-01-01"
+  end: "2026-10-31"
+
+aoi:
+  # APPROXIMATE box around Sierra Leone's EEZ: [min_lon, min_lat, max_lon, max_lat].
+  # It overlaps Guinea's and Liberia's waters, so once you have real data run
+  #   python -m iuu.cli discover-eez
+  # and paste Sierra Leone's EEZ id(s) below. Events are then filtered to those ids.
+  bbox: [-16.5, 4.8, -11.3, 9.3]
+  eez_region_ids: []
+
+iez:
+  # Inshore Exclusion Zone: reserved for artisanal fishers. Generally described as
+  # 5-6 nautical miles from shore; the legal line is a coordinate list in the
+  # First Schedule of the Fisheries and Aquaculture Regulations 2019.
+  distance_nm: 6
+  # Optional: path to a GeoJSON polygon of the official IEZ. If set, it is used
+  # instead of the distance rule.
+  geojson: null
+  # VERY APPROXIMATE coastline (lon, lat), north (Guinea border) to south (Mano River).
+  # Used only for SAR grid cells, which don't come with a distance-to-shore value.
+  # Replace with an accurate coastline (e.g. OpenStreetMap coastline) before
+  # treating SAR-in-IEZ flags as evidence.
+  coastline_approx:
+    - [-13.29, 9.04]
+    - [-13.25, 8.85]
+    - [-13.22, 8.65]
+    - [-13.30, 8.50]
+    - [-13.27, 8.40]
+    - [-13.22, 8.25]
+    - [-13.17, 8.15]
+    - [-12.98, 8.05]
+    - [-12.95, 7.90]
+    - [-12.95, 7.60]
+    - [-12.70, 7.40]
+    - [-12.30, 7.25]
+    - [-11.90, 7.10]
+    - [-11.50, 6.92]
+
+datasets:
+  events:
+    fishing: public-global-fishing-events:latest
+    gaps: public-global-gaps-events:latest
+    encounters: public-global-encounters-events:latest
+    loitering: public-global-loitering-events:latest
+  sar: public-global-sar-presence:latest
+  effort: public-global-fishing-effort:latest
+
+analysis:
+  min_gap_hours: 12               # AIS gaps shorter than this are ignored
+  sar_unmatched_filter: "matched='false'"   # radar detections with no AIS = "dark" vessels
+
+# Transparent, rule-based risk score per vessel. Each signal is evidence you can
+# show someone; weights are a starting point to tune with local experts.
+scoring:
+  iez_fishing_hour: 3.0           # per apparent-fishing hour inside the IEZ
+  mpa_fishing_hour: 2.0           # per fishing hour inside a marine protected area
+  gap_event: 4.0                  # per AIS gap (>= min_gap_hours) starting in the AOI
+  intentional_gap_bonus: 4.0      # extra if GFW marks the gap as likely intentional
+  gap_near_iez_bonus: 4.0         # extra if the gap starts within 2x IEZ distance of shore
+  encounter_with_carrier: 6.0     # possible at-sea transshipment
+  loitering_event: 1.0
+  no_public_authorization: 2.0    # weak signal: authorizations may simply be unpublished
